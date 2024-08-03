@@ -35,7 +35,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +56,9 @@ import androidx.compose.ui.unit.sp
 import com.example.groceryshoppingapp.ui.theme.GroceryShoppingAppTheme
 import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
@@ -62,168 +67,186 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         FirebaseApp.initializeApp(this)
-        enableEdgeToEdge()
         setContent {
             GroceryShoppingAppTheme {
-                var items by remember { mutableStateOf(
-                    listOf(
-                        Triple("Bananas", "4", "Carrefour"),
-                        Triple("Apples", "6", "Carrefour"),
-                        Triple("Carrots", "10", "Carrefour")
-                    )
-                ) }
-                var showDialog by remember { mutableStateOf(false) }
-                var selectedStore by remember { mutableStateOf("Carrefour") }
-                var filterSelectedStore by remember { mutableStateOf("Toate") }
-                var isSortedAscending by remember { mutableStateOf(true) }
-                var itemToRemove by remember { mutableStateOf<Triple<String, String, String>?>(null) }
-                var showRemoveDialog by remember { mutableStateOf(false) }
-                val stores = listOf("Carrefour", "Kaufland", "LIDL", "Metro", "Piață", "Selgros", "Black Friday")
-                val selectStores = listOf("Toate") + stores
+                MainScreen()
+            }
+        }
+    }
+}
 
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    floatingActionButton = {
-                        Row(
-                            verticalAlignment = Alignment.Bottom,
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        ) {
-                            FloatingActionButton(
-                                onClick = {
-                                    items = if (isSortedAscending) {
-                                        items.sortedBy { it.first }
-                                    } else {
-                                        items.sortedByDescending { it.first }
-                                    }
-                                    isSortedAscending = !isSortedAscending
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = if (isSortedAscending) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                                    contentDescription = "Sort"
-                                )
-                            }
-                            FloatingActionButton(
-                                onClick = { showDialog = true }
-                            ) {
-                                Text(
-                                    text = "+",
-                                    fontSize = 32.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                            }
-                        }
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MainScreen() {
+    val repository = GroceryRepository()
+    val items by repository.itemsFlow.collectAsState()
+    var showDialog by remember { mutableStateOf(false) }
+    var selectedStore by remember { mutableStateOf("Carrefour") }
+    var filterSelectedStore by remember { mutableStateOf("Toate") }
+    var isSortedAscending by remember { mutableStateOf(true) }
+    var itemToRemove by remember { mutableStateOf<GroceryItem?>(null) }
+    var showRemoveDialog by remember { mutableStateOf(false) }
+
+    val coroutineScope = rememberCoroutineScope()
+
+    val stores = listOf("Carrefour", "Kaufland", "LIDL", "Metro", "Piață", "Selgros", "Black Friday")
+    val selectStores = listOf("Toate") + stores
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        floatingActionButton = {
+            Row(
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                FloatingActionButton(
+                    onClick = {
+                        isSortedAscending = !isSortedAscending
                     }
-                ) { innerPadding ->
-                    Column(
-                        modifier = Modifier
-                            .padding(innerPadding)
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                    ) {
-                        var expanded by remember { mutableStateOf(false) }
+                ) {
+                    Icon(
+                        imageVector = if (isSortedAscending) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                        contentDescription = "Sort"
+                    )
+                }
+                FloatingActionButton(
+                    onClick = { showDialog = true }
+                ) {
+                    Text(
+                        text = "+",
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            }
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .padding(innerPadding)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+        ) {
+            var expanded by remember { mutableStateOf(false) }
 
-                        ExposedDropdownMenuBox(
-                            expanded = expanded,
-                            onExpandedChange = { expanded = !expanded }
-                        ) {
-                            TextField(
-                                readOnly = true,
-                                value = filterSelectedStore,
-                                onValueChange = {},
-                                trailingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Filled.ArrowDropDown,
-                                        contentDescription = "Dropdown Icon"
-                                    )
-                                },
-                                modifier = Modifier
-                                    .menuAnchor()
-                                    .fillMaxWidth(),
-                                textStyle = TextStyle(
+            ExposedDropdownMenuBox(
+                expanded = expanded,
+                onExpandedChange = { expanded = !expanded }
+            ) {
+                TextField(
+                    readOnly = true,
+                    value = filterSelectedStore,
+                    onValueChange = {},
+                    trailingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.ArrowDropDown,
+                            contentDescription = "Dropdown Icon"
+                        )
+                    },
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth(),
+                    textStyle = TextStyle(
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+                ExposedDropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false },
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .fillMaxWidth(0.5f)
+                        .border(1.dp, Color.Black, RectangleShape)
+                ) {
+                    selectStores.forEach { store ->
+                        DropdownMenuItem(
+                            {
+                                Text(
+                                    text = store,
                                     fontSize = 20.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth()
                                 )
-                            )
-                            ExposedDropdownMenu(
-                                expanded = expanded,
-                                onDismissRequest = { expanded = false },
-                                modifier = Modifier
-                                    .align(Alignment.CenterHorizontally)
-                                    .fillMaxWidth(0.5f)
-                                    .border(1.dp, Color.Black, RectangleShape)
-                            ) {
-                                selectStores.forEach { store ->
-                                    DropdownMenuItem(
-                                        {
-                                            Text(
-                                                text = store,
-                                                fontSize = 20.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                textAlign = TextAlign.Center,
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                        },
-                                        onClick = {
-                                            filterSelectedStore = store
-                                            expanded = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-
-                        if (isSortedAscending)
-                            items = items.sortedBy { it.first }
-                        else items = items.sortedByDescending { it.first }
-
-                        GroceryList(
-                            items = if (filterSelectedStore == "Toate") items else items.filter { it.third == filterSelectedStore },
-                            modifier = Modifier.fillMaxSize(),
-                            onItemClick = { item ->
-                                itemToRemove = item
-                                showRemoveDialog = true
+                            },
+                            onClick = {
+                                filterSelectedStore = store
+                                expanded = false
                             }
                         )
                     }
                 }
+            }
 
-                if (showDialog) {
-                    AddItemDialog(
-                        onDismiss = { showDialog = false },
-                        onAddItem = { name, quantity, store ->
-                            items = items + Triple(name, quantity, store)
-                            showDialog = false
-                        },
-                        selectedStore = selectedStore,
-                        onStoreChange = { newStore -> selectedStore = newStore }
-                    )
+            val sortedItems = if (isSortedAscending) {
+                items.sortedBy { it.name }
+            } else {
+                items.sortedByDescending { it.name }
+            }
+
+            GroceryList(
+                items = if (filterSelectedStore == "Toate") sortedItems else sortedItems.filter { it.marketplace == filterSelectedStore },
+                modifier = Modifier.fillMaxSize(),
+                onItemClick = { item ->
+                    itemToRemove = item
+                    showRemoveDialog = true
                 }
+            )
+        }
+    }
 
-                if (showRemoveDialog) {
-                    AlertDialog(
-                        onDismissRequest = { showRemoveDialog = false },
-                        title = { Text("Confirmare ștergere") },
-                        text = { Text("Ești sigur că dorești să ștergi acest produs?") },
-                        confirmButton = {
-                            Button(
-                                onClick = {
-                                    items = items - itemToRemove!!
-                                    showRemoveDialog = false
-                                }
-                            ) {
-                                Text("Șterge",fontWeight = FontWeight.Bold)
-                            }
-                        },
-                        dismissButton = {
-                            Button(onClick = { showRemoveDialog = false }) {
-                                Text("Renunță",fontWeight = FontWeight.Bold)
+    if (showDialog) {
+        AddItemDialog(
+            onDismiss = { showDialog = false },
+            onAddItem = { name, quantity, store ->
+                val newItem = GroceryItem(
+                    id = (items.maxOfOrNull { it.id } ?: 0) + 1,
+                    name = name,
+                    quantity = quantity,
+                    marketplace = store
+                )
+                coroutineScope.launch {
+                    repository.addGroceryItem(newItem)
+                }
+                showDialog = false
+            },
+            selectedStore = selectedStore,
+            onStoreChange = { newStore -> selectedStore = newStore }
+        )
+    }
+
+    if (showRemoveDialog) {
+        AlertDialog(
+            onDismissRequest = { showRemoveDialog = false },
+            title = { Text("Confirmare ștergere") },
+            text = { Text("Ești sigur că dorești să ștergi acest produs?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        itemToRemove?.let {
+                            coroutineScope.launch {
+                                repository.removeGroceryItem(it.id)
                             }
                         }
-                    )
+                        showRemoveDialog = false
+                    }
+                ) {
+                    Text("Șterge", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                Button(onClick = { showRemoveDialog = false }) {
+                    Text("Renunță", fontWeight = FontWeight.Bold)
                 }
             }
+        )
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            repository.stopListening()
         }
     }
 }
@@ -237,32 +260,44 @@ data class GroceryItem(
 
 class GroceryRepository {
     private val db = FirebaseFirestore.getInstance()
+    private var listenerRegistration: ListenerRegistration? = null
+    private val _itemsFlow = MutableStateFlow<List<GroceryItem>>(emptyList())
+    val itemsFlow: StateFlow<List<GroceryItem>> get() = _itemsFlow
 
-    suspend fun getGroceryItems(): List<GroceryItem> {
-        return try {
-            val snapshot = db.collection("items").get().await()
-            snapshot.documents.map { document ->
-                document.toObject(GroceryItem::class.java)!!
+    init {
+        startListening()
+    }
+
+    private fun startListening() {
+        listenerRegistration = db.collection("items")
+            .addSnapshotListener { snapshot, e ->
+                if (e != null) {
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    _itemsFlow.value = snapshot.documents.map { document ->
+                        document.toObject(GroceryItem::class.java)!!
+                    }
+                }
             }
-        } catch (e: Exception) {
-            emptyList()
-        }
     }
 
     suspend fun addGroceryItem(item: GroceryItem) {
         try {
             db.collection("items").document(item.id.toString()).set(item).await()
-        } catch (e: Exception) {
-            // Handle exception
+        } catch (_: Exception) {
         }
     }
 
     suspend fun removeGroceryItem(itemId: Int) {
         try {
             db.collection("items").document(itemId.toString()).delete().await()
-        } catch (e: Exception) {
-            // Handle exception
+        } catch (_: Exception) {
         }
+    }
+
+    fun stopListening() {
+        listenerRegistration?.remove()
     }
 }
 
@@ -278,7 +313,7 @@ fun GroceryItem(
         modifier = modifier
             .fillMaxWidth()
             .padding(4.dp)
-            .clickable(onClick = onClick), // Make the item clickable
+            .clickable(onClick = onClick),
         color = Color.White,
         shadowElevation = 4.dp,
         shape = RoundedCornerShape(16.dp)
@@ -302,12 +337,10 @@ fun GroceryItem(
             Text(
                 text = quantity,
                 style = TextStyle(
-                    fontSize = 20.sp,
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.Black
-                ),
-                textAlign = TextAlign.End,
-                modifier = Modifier.weight(1f).padding(end = 25.dp)
+                )
             )
         }
     }
@@ -315,17 +348,17 @@ fun GroceryItem(
 
 @Composable
 fun GroceryList(
-    items: List<Triple<String, String, String>>,
+    items: List<GroceryItem>,
     modifier: Modifier = Modifier,
-    onItemClick: (Triple<String, String, String>) -> Unit
+    onItemClick: (GroceryItem) -> Unit
 ) {
     Column(modifier = modifier.padding(16.dp)) {
         items.forEach { item ->
             GroceryItem(
-                name = item.first,
-                quantity = item.second,
-                marketplace = item.third,
-                onClick = { onItemClick(item) } // Pass the item to the onClick callback
+                name = item.name,
+                quantity = item.quantity,
+                marketplace = item.marketplace,
+                onClick = { onItemClick(item) }
             )
         }
     }
